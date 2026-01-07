@@ -6,7 +6,7 @@ from openpyxl.styles import Alignment
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
-
+ 
 # ================= CONFIG =================
 load_dotenv()
 
@@ -121,10 +121,10 @@ def get_segment_label(section_name: str) -> str:
     if "desktop" in name:
         return "desktop traffic"
 
-    if "us" in name:
+    if "Us" in name:
         return "US traffic"
 
-    # ✅ SAFE, PROFESSIONAL FALLBACK
+    #    FALLBACK
     return "this traffic segment"
 
 
@@ -146,6 +146,7 @@ class GAState(TypedDict):
     lm_positive_count: int
     lm_negative_count: int
     avg_abs_lm: Optional[float]
+    # global_lm_context: Optional[str]
 
 # ================= AGENT 1: METRICS =================
 def metrics_agent(state: GAState) -> GAState:
@@ -167,9 +168,9 @@ def metrics_agent(state: GAState) -> GAState:
         if state["v25"][i] is not None:
             latest_month = state["months"][i]
 
-    # ================= ADD THESE =================
+    
 
-    # 1️⃣ YTD change (sum of current year vs previous year)
+    # 1️ YTD change (sum of current year vs previous year)
     valid_indices = [i for i, v in enumerate(state["v25"]) if v is not None]
 
     if valid_indices:
@@ -185,11 +186,11 @@ def metrics_agent(state: GAState) -> GAState:
     else:
         state["ytd_change"] = None
 
-    # 2️⃣ LM positive / negative count
+    # 2️ LM positive / negative count
     state["lm_positive_count"] = sum(1 for v in lm if v is not None and v > 0)
     state["lm_negative_count"] = sum(1 for v in lm if v is not None and v < 0)
 
-    # 3️⃣ Average absolute LM
+    # 3️ Average absolute LM
     lm_values = [abs(v) for v in lm if v is not None]
     state["avg_abs_lm"] = sum(lm_values) / len(lm_values) if lm_values else None
 
@@ -197,6 +198,7 @@ def metrics_agent(state: GAState) -> GAState:
     state["yoy"] = yoy
     state["lm"] = lm
     state["latest_month"] = latest_month
+    
 
     return state
 
@@ -214,7 +216,8 @@ def reasoning_agent(state: GAState) -> GAState:
 You are a digital analytics analyst interpreting a comparison between two measured data points.
 
 Rules:
-- Use ONLY the numeric values provided
+-  Whenever mentioning year-over-year values, you MUST explicitly state that the comparison is for the same month as {state['latest_month']}
+- Do NOT use generic phrases like "year-over-year decline" without specifying the month
 - Do NOT describe trends, patterns, consistency, acceleration, or momentum
 - Do NOT imply long-term or sustained behavior
 - Observational and factual tone only
@@ -223,7 +226,8 @@ Rules:
 
 Measured Comparisons:
 - Adjacent-month change (latest month vs previous month): {round(lm*100,2) if lm is not None else "Not available"}%
-- Same-month year comparison (current year vs prior year): {round(yoy*100,2) if yoy is not None else "Not available"}%
+- Same-month year-over-year change for {state['latest_month']} compared to the same month last year: {round(yoy*100,2) if yoy is not None else "Not available"}%
+
 
 Task:
 Compare the direction and relative magnitude of these two values using neutral analytical language
@@ -243,7 +247,7 @@ def planning_agent(state: GAState) -> GAState:
     lm = state["lm"][idx]
     yoy = state["yoy"][idx]
 
-    # 1️⃣ Emphasis planning
+    # 1️ Emphasis planning
     if lm is None or yoy is None:
         state["plan"] = "Maintain neutral emphasis."
     elif abs(lm) > abs(yoy):
@@ -261,7 +265,7 @@ def planning_agent(state: GAState) -> GAState:
             "Maintain balanced emphasis between adjacent-month and year-over-year changes."
         )
 
-    # 2️⃣ Confidence planning
+    # 2️ Confidence planning
     delta_strength = max(abs(lm or 0), abs(yoy or 0))
 
     if delta_strength < 0.05:
@@ -276,7 +280,7 @@ def planning_agent(state: GAState) -> GAState:
 
     state["plan"] += " " + confidence
 
-    # 3️⃣ Directional mismatch detection
+    # 3️ Directional mismatch detection
     if lm is not None and yoy is not None and lm * yoy < 0:
         state["plan"] += (
             " Highlight the directional mismatch between short-term and year-over-year movement."
@@ -320,7 +324,10 @@ Strict Rules:
 - Do NOT use the words: trend, consistency, acceleration, momentum, sustained, long-term
 - Do NOT introduce causes, channels, pages, users, assumptions, or influencing factors
 - Describe observations based on direct comparison only
+- You MUST explicitly mention the distribution of adjacent-month changes (positive vs negative) AND the average absolute adjacent-month magnitude if the values are provided
 - Formal report-style language
+- You may describe relative magnitude or direction ONLY using the numeric values provided
+- Do NOT infer patterns beyond the stated comparisons
 Follow the Writing emphasis exactly when ordering and weighting sentences.
 
 Context:
@@ -329,24 +336,25 @@ Month: {state['latest_month']}
 Writing emphasis: {state['plan']}
 
 
-Confirmed Metrics:
-- Adjacent-month change: {round(lm*100,2) if lm is not None else "Not available"}%
-- Same-month year comparison: {round(yoy*100,2) if yoy is not None else "Not available"}%
-- Year-to-date change vs prior year: {round(state["ytd_change"]*100,2) if state["ytd_change"] is not None else "Not available"}%
-- Count of positive adjacent-month changes: {state["lm_positive_count"]}
-- Count of negative adjacent-month changes: {state["lm_negative_count"]}
-- Average absolute month-to-month change: {round(state["avg_abs_lm"]*100,2) if state["avg_abs_lm"] is not None else "Not available"}%
+Confirmed Metrics (all values are point-in-time and factual):
+- Adjacent-month change for {state['latest_month']} compared to the previous month: {round(lm*100,2) if lm is not None else "Not available"}%
+- Same-month year-over-year change for {state['latest_month']} compared to the same month last year: {round(yoy*100,2) if yoy is not None else "Not available"}%
+- Year-to-date change up to {state['latest_month']} compared to the same period last year: {round(state["ytd_change"]*100,2) if state["ytd_change"] is not None else "Not available"}%
+- Number of positive adjacent-month changes across the measured months: {state["lm_positive_count"]}
+- Number of negative adjacent-month changes across the measured months: {state["lm_negative_count"]}
+- Average absolute adjacent-month change magnitude: {round(state["avg_abs_lm"]*100,2) if state["avg_abs_lm"] is not None else "Not available"}%
 
-You may reference cumulative or distribution context ONLY if numeric values are provided above.
-Analytical Interpretation:
-{state['insight']}
+
 
 Required Structure:
 1.Opening sentence stating the latest month’s observed change and magnitude in {segment_label}
 2. Sentence comparing the adjacent-month change with the same-month year comparison
-3. Sentence explicitly referencing the year-to-date change OR average month-to-month volatility (avg_abs_lm) using the numeric value provided
-4. Two bullet points restating the numeric values using different phrasing and also I want sentence that states "It is important to clarify that this analysis reflects a two-point comparison only" 
-5. Closing sentence emphasizing monitoring of future measured changes only
+3. One sentence explicitly describing the year-to-date change using the numeric value provided
+4. One sentence describing the distribution of adjacent-month changes
+   (number of positive vs negative months and the average absolute magnitude)
+5. Two bullet points restating the key numeric comparisons
+6. Closing sentence emphasizing monitoring of future measured changes only
+7. Closing sentence emphasizing monitoring of future measured changes only
 Mandatory Ending Sentence:
 "This interpretation reflects a comparison between measured data points rather than a sustained trend."
 
@@ -376,11 +384,13 @@ def run_agent():
     ws = wb[SHEET_NAME]
     raw = pd.read_excel(INPUT_FILE, sheet_name=SHEET_NAME, header=None)
 
-    headers = [
-        i + 1 for i in range(len(raw))
-        if "Month" in raw.iloc[i].astype(str).tolist()
-        and "Year-2025" in " ".join(raw.iloc[i].astype(str))
-    ]
+    headers = []
+
+    for i in range(len(raw)):
+        row_text = " ".join(raw.iloc[i].astype(str))
+        if "Month" in row_text and "Year-2025" in row_text:
+            headers.append(i + 1)
+
 
     for table_idx, header in enumerate(headers):
         section_name = (
@@ -420,7 +430,8 @@ def run_agent():
         "ytd_change": None,
         "lm_positive_count": 0,
         "lm_negative_count": 0,
-        "avg_abs_lm": None
+        "avg_abs_lm": None,
+        #  "global_lm_context": None
     }
 
 
@@ -433,16 +444,24 @@ def run_agent():
             if result["yoy"][i] is not None:
                 ws.cell(row, 6).value = result["yoy"][i]
                 ws.cell(row, 6).number_format = "0.00%"
-            if result["lm"][i] is not None:
-                ws.cell(row, 7).value = result["lm"][i]
-                ws.cell(row, 7).number_format = "0.00%"
+            # if result["lm"][i] is not None:
+            #     ws.cell(row, 7).value = result["lm"][i]
+            #     ws.cell(row, 7).number_format = "0.00%"
 
         # total_row = header + 1 + len(months)
         # pct_row = total_row + 1
         total_row = r
         pct_row = r + 1
         latest_idx = max( i for i,v in enumerate(v25) if v is not None )
- 
+        latest_lm = result["lm"][latest_idx]
+        # Write latest LM value ONLY (point-in-time)
+        if latest_lm is not None:
+            ws.cell(pct_row, 7).value = latest_lm
+            ws.cell(pct_row, 7).number_format = "0.00%"
+
+        latest_idx = max( i for i,v in enumerate(v25) if v is not None )
+        latest_lm = result["lm"][latest_idx]
+
 
         
         # FULL YEAR totals
@@ -494,8 +513,7 @@ def run_agent():
         )
 
     wb.save(INPUT_FILE)
-    print("✅ Totals, % Change, YOY, LM and Narrative successfully generated")
+    print(" Totals, % Change, YOY, LM and Narrative successfully generated")
 
 if __name__ == "__main__":
     run_agent()
-#
