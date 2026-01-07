@@ -1,5 +1,4 @@
-# 📊 Automated Traffic Analytics using Agentic AI
-
+#   Traffic Analytics 
 ## Overview
 
 This project is an **automated analytics system** that reads structured monthly traffic data from Excel and generates **professional, point-in-time analytical commentary** using an agent-based AI architecture.
@@ -146,6 +145,4 @@ They do not represent forecasts, trends, or long-term behavioral conclusions.
 B.Tech CSE (AI & ML)  
 Agentic Analytics | Data Interpretation | Automation
 
----
 
-> *“The goal of this system is not to sound insightful, but to be analytically correct.”*
