@@ -1,0 +1,4 @@
+.env
+_agent_state.json
+venv/
+__pycache__/

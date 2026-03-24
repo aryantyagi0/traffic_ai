@@ -1,0 +1,7 @@
+openai
+python-dotenv
+requests
+boto3
+azure-identity
+azure-mgmt-containerregistry
+azure-mgmt-appcontainers
